@@ -1,0 +1,48 @@
+services:
+  llm-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dynamic-llm-router
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=dynamic-llm-inference-router
+      - VLLM_NODE_URL=http://mock-vllm:8001/v1
+      - LLAMACPP_NODE_URL=http://mock-llamacpp:8002/v1
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+    depends_on:
+      - prometheus
+      - otel-collector
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: router-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: router-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.96.0
+    container_name: router-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    restart: unless-stopped
