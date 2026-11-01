@@ -42,6 +42,7 @@ class InferenceRequest:
         temperature: Sampling temperature.
         max_tokens: Maximum tokens to generate.
         routing_strategy: Strategy override.
+        stream: Whether to stream back partial tokens via SSE.
     """
 
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -50,6 +51,7 @@ class InferenceRequest:
     temperature: float = 0.7
     max_tokens: int = 512
     routing_strategy: RoutingStrategy = RoutingStrategy.COMPLEXITY_ADAPTIVE
+    stream: bool = False
 
 
 @dataclass
@@ -96,3 +98,4 @@ class InferenceResponse:
     completion_tokens: int
     total_latency_ms: float
     route_decision: RouteDecision
+    is_cached: bool = False

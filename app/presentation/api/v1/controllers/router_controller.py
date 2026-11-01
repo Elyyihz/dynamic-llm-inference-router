@@ -26,12 +26,16 @@ class RouterController:
         self.route_usecase = route_usecase
         self.telemetry_usecase = telemetry_usecase
 
-    async def handle_chat_completion(self, req: ChatCompletionRequestDto) -> ChatCompletionResponseDto:
-        """Processes chat completion with dynamic routing."""
+    async def execute_inference(self, req: ChatCompletionRequestDto) -> InferenceResponse:
+        """Executes domain routing usecase from presentation DTO."""
         logger.info("Step started: Handling chat completion request for model=%s", req.model)
 
         strategy_str = (req.routing_strategy or "COMPLEXITY_ADAPTIVE").upper()
-        strategy = RoutingStrategy[strategy_str] if strategy_str in RoutingStrategy.__members__ else RoutingStrategy.COMPLEXITY_ADAPTIVE
+        strategy = (
+            RoutingStrategy[strategy_str]
+            if strategy_str in RoutingStrategy.__members__
+            else RoutingStrategy.COMPLEXITY_ADAPTIVE
+        )
 
         domain_request = InferenceRequest(
             model=req.model,
@@ -39,12 +43,18 @@ class RouterController:
             temperature=req.temperature or 0.7,
             max_tokens=req.max_tokens or 512,
             routing_strategy=strategy,
+            stream=bool(req.stream),
         )
 
-        response = await self.route_usecase.execute(domain_request)
+        return await self.route_usecase.execute(domain_request)
 
+    async def handle_chat_completion(self, req: ChatCompletionRequestDto) -> ChatCompletionResponseDto:
+        """Processes chat completion with dynamic routing."""
+        response = await self.execute_inference(req)
+
+        cached_indicator = " [CACHE HIT]" if response.is_cached else ""
         user_msg = (
-            f"Requisição roteada dinamicamente para o nó '{response.node_used}' "
+            f"Requisição roteada dinamicamente{cached_indicator} para o nó '{response.node_used}' "
             f"({response.route_decision.selected_runtime_type.value}) em {response.total_latency_ms:.1f}ms."
         )
 
@@ -69,6 +79,7 @@ class RouterController:
             runtime_type=response.route_decision.selected_runtime_type.value,
             routing_reason=response.route_decision.reasoning,
             latency_ms=response.total_latency_ms,
+            is_cached=response.is_cached,
             user_message=user_msg,
         )
 

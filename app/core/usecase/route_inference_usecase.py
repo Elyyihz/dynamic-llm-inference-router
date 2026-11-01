@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from app.core.domain.models.route import (
     InferenceRequest,
     InferenceResponse,
@@ -9,6 +10,7 @@ from app.core.domain.enum.runtime_type import RuntimeType, RoutingStrategy
 from app.core.domain.gateway.health_monitor_gateway import HealthMonitorGateway
 from app.core.domain.gateway.runtime_client_gateway import RuntimeClientGateway
 from app.core.domain.gateway.metrics_gateway import MetricsGateway
+from app.core.domain.gateway.cache_gateway import SemanticCacheGateway
 
 logger = logging.getLogger("llm_router.usecase.route")
 
@@ -21,6 +23,7 @@ class RouteInferenceUseCase:
         health_gateway: HealthMonitorGateway,
         runtime_gateway: RuntimeClientGateway,
         metrics_gateway: MetricsGateway,
+        cache_gateway: Optional[SemanticCacheGateway] = None,
     ):
         """Initializes router use case with gateway ports.
 
@@ -28,10 +31,12 @@ class RouteInferenceUseCase:
             health_gateway: Cluster topology port.
             runtime_gateway: Inference runtime execution port.
             metrics_gateway: Prometheus / OpenTelemetry telemetry port.
+            cache_gateway: Optional semantic caching port.
         """
         self.health_gateway = health_gateway
         self.runtime_gateway = runtime_gateway
         self.metrics_gateway = metrics_gateway
+        self.cache_gateway = cache_gateway
 
     def _estimate_complexity(self, req: InferenceRequest) -> float:
         """Estimates token length and reasoning complexity [0.0 - 1.0]."""
@@ -52,6 +57,13 @@ class RouteInferenceUseCase:
             InferenceResponse entity.
         """
         logger.info("Step started: Routing inference request_id=%s, model=%s", request.request_id, request.model)
+
+        # 1. Check semantic cache
+        if self.cache_gateway:
+            cached_resp = await self.cache_gateway.get_cached_response(request)
+            if cached_resp:
+                logger.info("Step concluded: Returning cached response for request_id=%s (latency=%.1fms)", request.request_id, cached_resp.total_latency_ms)
+                return cached_resp
 
         nodes = await self.health_gateway.list_available_nodes()
         if not nodes:
@@ -97,6 +109,8 @@ class RouteInferenceUseCase:
             response = await self.runtime_gateway.execute_inference(target_node, request, decision)
             await self.health_gateway.update_node_latency(target_node.node_id, response.total_latency_ms, is_error=False)
             self.metrics_gateway.record_inference_telemetry(response)
+            if self.cache_gateway:
+                await self.cache_gateway.store_response(request, response)
             logger.info("Step concluded: Inference succeeded on node=%s (latency=%.1fms)", target_node.name, response.total_latency_ms)
             return response
         except Exception as exc:

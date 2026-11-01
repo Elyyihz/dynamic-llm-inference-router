@@ -17,6 +17,7 @@ class ChatCompletionRequestDto(BaseModel):
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 512
     routing_strategy: Optional[str] = "COMPLEXITY_ADAPTIVE"
+    stream: Optional[bool] = False
 
 
 class UsageDto(BaseModel):
@@ -48,4 +49,5 @@ class ChatCompletionResponseDto(BaseModel):
     runtime_type: str
     routing_reason: str
     latency_ms: float
+    is_cached: bool = False
     user_message: str = Field(..., description="Mensagem contextual em pt-BR.")
